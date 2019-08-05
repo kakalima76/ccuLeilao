@@ -19,27 +19,37 @@ import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import br.com.leilao.retrofitBase.services.RetrofitBase
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
-    lateinit var imageView: ImageView
-    lateinit var captureButton: Button
+    lateinit var posicao: TextView
     val REQUEST_IMAGE_CAPTURE = 1
     private val PERMISSION_REQUEST_CODE: Int = 101
     private var mCurrentPhotoPath: String? = null;
 
 
+
+    //region InterfaceApp
+
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+
         val gpo = findViewById<Spinner>(R.id.ItensGrupo)
         val lacre = findViewById<EditText>(R.id.editTExtLacre)
         val btnFotografar = findViewById<FloatingActionButton>(R.id.fab_camera)
+        val buscar = findViewById<Button>(R.id.Buscar)
+        posicao = findViewById<TextView>(R.id.Posicao)
         val listaGrupos = arrayOf<String>(
             "",
             "ELETRODOMESTICO",
@@ -53,9 +63,9 @@ class MainActivity : AppCompatActivity() {
             "MOENDA",
             "TRANSPORTE"
         )
-
-
         val adapter = ArrayAdapter(this, android.R.layout.simple_expandable_list_item_1, listaGrupos)
+
+
         gpo.adapter = adapter
 
         gpo.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -78,7 +88,35 @@ class MainActivity : AppCompatActivity() {
 
             if (checkPersmission()) takePicture() else requestPermission()
         })
-    }
+
+        buscar.setOnClickListener(View.OnClickListener {
+            contarItens()
+        })
+
+
+    }//endregion
+
+
+    //region Retrofit
+    fun contarItens(){
+
+        val call = RetrofitBase().itemService().total()
+
+        call.enqueue(object : Callback<Int?> {
+            override fun onFailure(call: Call<Int?>, t: Throwable) {
+                TODO("not implemented")
+            }
+
+            override fun onResponse(call: Call<Int?>, response: Response<Int?>) {
+                posicao.setText(response.body().toString())
+            }
+        })
+
+
+    }//endregion
+
+
+    //region CameraApp
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         when (requestCode) {
@@ -100,6 +138,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+
+
 
     private fun takePicture() {
 
@@ -150,7 +191,7 @@ class MainActivity : AppCompatActivity() {
             // Save a file: path for use with ACTION_VIEW intents
             mCurrentPhotoPath = absolutePath
         }
-    }
+    }//endregion
 
 
 }
