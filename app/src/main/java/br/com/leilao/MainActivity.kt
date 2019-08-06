@@ -12,29 +12,47 @@ import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Environment
+import android.os.Environment.getExternalStorageDirectory
+import android.os.Environment.getExternalStoragePublicDirectory
 import android.provider.MediaStore
+import android.text.Editable
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import br.com.leilao.models.GsonConverter
+import br.com.leilao.models.Item
+import br.com.leilao.models.Lacre
 import br.com.leilao.retrofitBase.services.RetrofitBase
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import kotlinx.android.synthetic.main.activity_main.*
+import org.json.JSONObject
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import java.io.File
 import java.io.IOException
+import java.lang.IndexOutOfBoundsException
 import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
     lateinit var posicao: TextView
+    lateinit var processo: TextView
+    lateinit var gpo: Spinner
+    lateinit var buscar: Button
+    lateinit var grupo: String
+    lateinit var salvar: Button
+    lateinit var imagemPath: String
+    lateinit var lacre: EditText
+    lateinit var btnFotografar: FloatingActionButton
     val REQUEST_IMAGE_CAPTURE = 1
     private val PERMISSION_REQUEST_CODE: Int = 101
     private var mCurrentPhotoPath: String? = null;
-
+    private var toast = this
 
 
     //region InterfaceApp
@@ -44,12 +62,16 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        gpo = findViewById(R.id.ItensGrupo)
+        lacre = findViewById(R.id.editTExtLacre)
+        btnFotografar = findViewById(R.id.fab_camera)
+        buscar = findViewById(R.id.Buscar)
+        posicao = findViewById(R.id.Posicao)
+        processo = findViewById(R.id.Processo)
+        salvar = findViewById(R.id.Salvar)
 
-        val gpo = findViewById<Spinner>(R.id.ItensGrupo)
-        val lacre = findViewById<EditText>(R.id.editTExtLacre)
-        val btnFotografar = findViewById<FloatingActionButton>(R.id.fab_camera)
-        val buscar = findViewById<Button>(R.id.Buscar)
-        posicao = findViewById<TextView>(R.id.Posicao)
+        salvar.visibility = View.INVISIBLE
+
         val listaGrupos = arrayOf<String>(
             "",
             "ELETRODOMESTICO",
@@ -65,12 +87,11 @@ class MainActivity : AppCompatActivity() {
         )
         val adapter = ArrayAdapter(this, android.R.layout.simple_expandable_list_item_1, listaGrupos)
 
-
         gpo.adapter = adapter
 
         gpo.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(adapterView: AdapterView<*>, view: View, i: Int, l: Long) {
-                Toast.makeText(this@MainActivity, listaGrupos[i], Toast.LENGTH_SHORT).show()
+                grupo = listaGrupos[i]
             }
             override fun onNothingSelected(adapterView: AdapterView<*>) {
             }
@@ -78,7 +99,11 @@ class MainActivity : AppCompatActivity() {
 
         lacre.setOnTouchListener { v, event ->
             when (event?.action) {
-                MotionEvent.ACTION_DOWN -> lacre.setText("")
+                MotionEvent.ACTION_DOWN -> {
+                    this.lacre.setText("")
+                    this.processo.text = ""
+                    this.posicao.text = ""
+                }
             }
 
             v?.onTouchEvent(event) ?: true
@@ -90,33 +115,108 @@ class MainActivity : AppCompatActivity() {
         })
 
         buscar.setOnClickListener(View.OnClickListener {
+            buscarlacre()
             contarItens()
+
+//            Toast.makeText(this, getExternalStorageDirectory().toString(), Toast.LENGTH_SHORT).show()
+//            Toast.makeText(this, filesDir.toString(), Toast.LENGTH_SHORT).show()
+
         })
 
+        salvar.setOnClickListener(View.OnClickListener {
+           salvarItem()
+
+        })
 
     }//endregion
 
 
     //region Retrofit
-    fun contarItens(){
+    private fun contarItens(){
 
-        val call = RetrofitBase().itemService().total()
+        val callGet = RetrofitBase().itemService().total()
 
-        call.enqueue(object : Callback<Int?> {
+        callGet.enqueue(object : Callback<Int?> {
             override fun onFailure(call: Call<Int?>, t: Throwable) {
-                TODO("not implemented")
+                Log.e("onFailure error", t?.message)
             }
 
             override fun onResponse(call: Call<Int?>, response: Response<Int?>) {
-                posicao.setText(response.body().toString())
+                var pos: Int? = response.body()
+                if(pos !== null){
+                    pos+=1
+                    posicao.text = (pos).toString()
+                }
+
             }
         })
 
 
-    }//endregion
+    }
+
+    private fun buscarlacre(){
+        val numeroLacre = Lacre()
+        numeroLacre.numero = editTExtLacre.text.toString()
+        val callPost = RetrofitBase().itemService().buscarLacre(numeroLacre)
+        callPost.enqueue(object: Callback<List<Lacre>?> {
+            override fun onFailure(call: Call<List<Lacre>?>, t: Throwable) {
+                Log.e("onFailure error", t?.message)
+            }
+
+            override fun onResponse(call: Call<List<Lacre>?>, response: Response<List<Lacre>?>) {
+               try {
+                   processo.text = response.body()!![0].processo
+               }catch (err : IndexOutOfBoundsException){
+                   processo.text = "SEM PROCESSO"
+               }
+            }
+        })
+    }
+
+    private fun salvarItem(){
+
+        if(
+            editTExtLacre.text.toString().isNullOrBlank()
+            ||
+            processo.text.toString().isNullOrBlank()
+            ||
+            posicao.text.toString().isNullOrBlank()
+            ||
+            grupo.isNullOrBlank()
+            ||
+            mCurrentPhotoPath.isNullOrBlank()
+        ){
+            Toast.makeText(this, "Informe todos os campos", Toast.LENGTH_LONG).show()
+        }else{
+            val item = Item(
+                lacre = editTExtLacre.text.toString(),
+                processo = processo.text.toString(),
+                posicao = posicao.text.toString(),
+                grupo = grupo,
+                path = mCurrentPhotoPath
+            )
+
+            val callSalvar = RetrofitBase().itemService().salvarItem(item)
+
+            callSalvar.enqueue(object: Callback<Item?> {
+                override fun onFailure(call: Call<Item?>, t: Throwable) {
+                    Log.e("onFailure error", t?.message)
+                }
+
+                override fun onResponse(call: Call<Item?>, response: Response<Item?>) {
+                    Toast.makeText(toast, "item salvo com sucesso", Toast.LENGTH_LONG).show()
+                }
+            })
+        }
+
+        Toast.makeText(this, mCurrentPhotoPath, Toast.LENGTH_LONG).show()
+    }
+
+    //endregion
 
 
     //region CameraApp
+
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         when (requestCode) {
@@ -134,7 +234,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             else -> {
-
+                Toast.makeText(this, "Permission Denied", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -147,6 +247,8 @@ class MainActivity : AppCompatActivity() {
         val intent: Intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
         val file: File = createFile()
 
+        //Toast.makeText(this, getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString(), Toast.LENGTH_SHORT).show()
+
         val uri: Uri = FileProvider.getUriForFile(
             this,
             "br.com.leilao.fileprovider",
@@ -154,16 +256,16 @@ class MainActivity : AppCompatActivity() {
         )
         intent.putExtra(MediaStore.EXTRA_OUTPUT, uri)
         startActivityForResult(intent, REQUEST_IMAGE_CAPTURE)
-        Toast.makeText(this, mCurrentPhotoPath, Toast.LENGTH_LONG).show();
 
     }
+
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == Activity.RESULT_OK) {
 
-            //To get the File for further usage
             val auxFile = File(mCurrentPhotoPath)
             var bitmap: Bitmap = decodeFile(mCurrentPhotoPath)
+            salvar.visibility = View.VISIBLE
 
         }
     }
@@ -182,14 +284,14 @@ class MainActivity : AppCompatActivity() {
     private fun createFile(): File {
         // Create an image file name
         val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
-        val storageDir: File = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+        val storageDir: File = getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
         return File.createTempFile(
             "JPEG_${timeStamp}_", /* prefix */
             ".jpg", /* suffix */
             storageDir /* directory */
         ).apply {
             // Save a file: path for use with ACTION_VIEW intents
-            mCurrentPhotoPath = absolutePath
+            mCurrentPhotoPath = this.absolutePath
         }
     }//endregion
 

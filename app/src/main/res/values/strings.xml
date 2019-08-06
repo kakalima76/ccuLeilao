@@ -2,6 +2,7 @@
     <string name="app_name">INVENTÁRIO</string>
     <string name="edittext_main_01">Informe o número do lacre</string>
     <string name="button_main_01">BUSCAR</string>
+    <string name="button_main_02">SALVAR</string>
     <string name="textview_main_01"></string>
     <string name="textview_main_02"></string>
     <string name="selected_item">Selected item:</string>

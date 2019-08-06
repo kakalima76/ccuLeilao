@@ -1,10 +1,9 @@
 package br.com.leilao.models
 
-
 data class Item(
-    val lacre: String,
-    val processo: String,
-    val posicao: String,
-    val grupo: String,
-    val imagem: String
+    var lacre: String?,
+    var processo: String?,
+    var posicao: String?,
+    var grupo: String?,
+    var path: String?
 )
