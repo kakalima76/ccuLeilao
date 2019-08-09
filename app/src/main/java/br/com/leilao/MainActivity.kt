@@ -1,21 +1,15 @@
 package br.com.leilao
 
-import android.Manifest.permission.CAMERA
-import android.Manifest.permission.READ_EXTERNAL_STORAGE
+import android.Manifest.permission.*
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory.*
-import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Environment
-import android.os.Environment.getExternalStorageDirectory
-import android.os.Environment.getExternalStoragePublicDirectory
 import android.provider.MediaStore
-import android.text.Editable
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
@@ -23,21 +17,30 @@ import android.widget.*
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import br.com.leilao.models.GsonConverter
 import br.com.leilao.models.Item
 import br.com.leilao.models.Lacre
+import br.com.leilao.models.base64Converter
 import br.com.leilao.retrofitBase.services.RetrofitBase
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import id.zelory.compressor.Compressor
 import kotlinx.android.synthetic.main.activity_main.*
-import org.json.JSONObject
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.asRequestBody
+import retrofit2.*
 import java.io.File
 import java.io.IOException
 import java.lang.IndexOutOfBoundsException
 import java.text.SimpleDateFormat
 import java.util.*
+import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
+
 
 class MainActivity : AppCompatActivity() {
     lateinit var posicao: TextView
@@ -50,9 +53,14 @@ class MainActivity : AppCompatActivity() {
     lateinit var lacre: EditText
     lateinit var btnFotografar: FloatingActionButton
     val REQUEST_IMAGE_CAPTURE = 1
-    private val PERMISSION_REQUEST_CODE: Int = 101
+    private val PERMISSION_REQUEST_CODE: Int = 1
     private var mCurrentPhotoPath: String? = null;
     private var toast = this
+    val GALLERY_REQUEST_CODE = 1
+    val CAMERA_REQUEST_CODE = 102
+    lateinit var base64String: String
+    lateinit var item: Item
+    var path = ""
 
 
     //region InterfaceApp
@@ -111,21 +119,23 @@ class MainActivity : AppCompatActivity() {
 
         btnFotografar.setOnClickListener(View.OnClickListener {
 
-            if (checkPersmission()) takePicture() else requestPermission()
+            if (checkPersmission()){
+                captureFromCamera()
+                Toast.makeText(this,  Environment.DIRECTORY_DCIM, Toast.LENGTH_LONG).show()
+            } else {
+                requestPermission()
+                Toast.makeText(this, BuildConfig.APPLICATION_ID, Toast.LENGTH_LONG).show()
+            }
+
         })
 
         buscar.setOnClickListener(View.OnClickListener {
             buscarlacre()
             contarItens()
-
-//            Toast.makeText(this, getExternalStorageDirectory().toString(), Toast.LENGTH_SHORT).show()
-//            Toast.makeText(this, filesDir.toString(), Toast.LENGTH_SHORT).show()
-
         })
 
         salvar.setOnClickListener(View.OnClickListener {
-           salvarItem()
-
+            salvarItem()
         })
 
     }//endregion
@@ -175,6 +185,34 @@ class MainActivity : AppCompatActivity() {
 
     private fun salvarItem(){
 
+
+    GlobalScope.launch { // launch a new coroutine in background and continue
+        delay(3000L) // non-blocking delay for 1 second (default time unit is ms)
+        item = Item(
+            lacre = editTExtLacre.text.toString(),
+            processo = processo.text.toString(),
+            posicao = posicao.text.toString(),
+            grupo = grupo,
+            path = path
+        )
+
+        Log.e("teu cu", item.path)
+
+        val callSalvar = RetrofitBase().itemService().salvarItem(item)
+
+        callSalvar.enqueue(object: Callback<Item?> {
+            override fun onFailure(call: Call<Item?>, t: Throwable) {
+                Log.e("onFailure error", t?.message)
+            }
+
+            override fun onResponse(call: Call<Item?>, response: Response<Item?>) {
+                //Toast.makeText(toast, "item salvo com sucesso", Toast.LENGTH_LONG).show()
+                Log.e("resposta", "com sucesso")
+            }
+        })
+
+
+        }
         if(
             editTExtLacre.text.toString().isNullOrBlank()
             ||
@@ -186,30 +224,36 @@ class MainActivity : AppCompatActivity() {
             ||
             mCurrentPhotoPath.isNullOrBlank()
         ){
-            Toast.makeText(this, "Informe todos os campos", Toast.LENGTH_LONG).show()
+            //Toast.makeText(this, "Informe todos os campos", Toast.LENGTH_LONG).show()
         }else{
-            val item = Item(
-                lacre = editTExtLacre.text.toString(),
-                processo = processo.text.toString(),
-                posicao = posicao.text.toString(),
-                grupo = grupo,
-                path = mCurrentPhotoPath
-            )
-
-            val callSalvar = RetrofitBase().itemService().salvarItem(item)
-
-            callSalvar.enqueue(object: Callback<Item?> {
-                override fun onFailure(call: Call<Item?>, t: Throwable) {
-                    Log.e("onFailure error", t?.message)
-                }
-
-                override fun onResponse(call: Call<Item?>, response: Response<Item?>) {
-                    Toast.makeText(toast, "item salvo com sucesso", Toast.LENGTH_LONG).show()
-                }
-            })
+            path = base64Converter().encoder(mCurrentPhotoPath)
+            Log.e("teu cu", path)
+            Thread.sleep(3000L) // block main thread for 2 seconds to keep JVM alive
         }
 
-        Toast.makeText(this, mCurrentPhotoPath, Toast.LENGTH_LONG).show()
+
+
+
+
+    }
+
+    private fun salvarImagemPath() {
+        val file: File = File(mCurrentPhotoPath)
+        val fileReqBody: RequestBody = file.asRequestBody("image/".toMediaTypeOrNull())
+        val part = MultipartBody.Part.createFormData("upload", file.name, fileReqBody)
+        val description = "image-type".toRequestBody("text/plain".toMediaTypeOrNull())
+        val callImage = RetrofitBase().itemService().uploadImage(part, description)
+
+        callImage.enqueue(object : Callback<ResponseBody?> {
+            override fun onFailure(call: Call<ResponseBody?>, t: Throwable) {
+                Log.e("onFailure error", t?.message)
+            }
+
+            override fun onResponse(call: Call<ResponseBody?>, response: Response<ResponseBody?>) {
+                Toast.makeText(toast, "imagem enviada", Toast.LENGTH_LONG).show()
+            }
+        })
+
     }
 
     //endregion
@@ -225,7 +269,7 @@ class MainActivity : AppCompatActivity() {
                 if ((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)
                     && grantResults[1] == PackageManager.PERMISSION_GRANTED) {
 
-                    takePicture()
+                    captureFromCamera()
 
                 } else {
                     Toast.makeText(this, "Permission Denied", Toast.LENGTH_SHORT).show()
@@ -239,61 +283,77 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
-
-
-    private fun takePicture() {
-
-        val intent: Intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        val file: File = createFile()
-
-        //Toast.makeText(this, getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES).toString(), Toast.LENGTH_SHORT).show()
-
-        val uri: Uri = FileProvider.getUriForFile(
-            this,
-            "br.com.leilao.fileprovider",
-            file
-        )
-        intent.putExtra(MediaStore.EXTRA_OUTPUT, uri)
-        startActivityForResult(intent, REQUEST_IMAGE_CAPTURE)
-
-    }
-
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == Activity.RESULT_OK) {
-
-            val auxFile = File(mCurrentPhotoPath)
-            var bitmap: Bitmap = decodeFile(mCurrentPhotoPath)
-            salvar.visibility = View.VISIBLE
-
-        }
-    }
-
     private fun checkPersmission(): Boolean {
-        return (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED && ContextCompat.checkSelfPermission(this,
-            android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED)
+        return (
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                &&
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                &&
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                &&
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED
+        )
     }
 
     private fun requestPermission() {
-        ActivityCompat.requestPermissions(this, arrayOf(READ_EXTERNAL_STORAGE, CAMERA), PERMISSION_REQUEST_CODE)
+        ActivityCompat.requestPermissions(this, arrayOf(READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE,  INTERNET, CAMERA), PERMISSION_REQUEST_CODE)
     }
 
+
+    private var cameraFilePath: String? = null
     @Throws(IOException::class)
-    private fun createFile(): File {
+    private fun createImageFile(): File {
         // Create an image file name
-        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
-        val storageDir: File = getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-        return File.createTempFile(
-            "JPEG_${timeStamp}_", /* prefix */
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
+        val imageFileName = "JPEG_" + timeStamp + "_"
+        //This is the directory in which the file will be created. This is the default location of Camera photos
+        val storageDir = File(
+            Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_DCIM
+            ), "Camera"
+        )
+        val image = File.createTempFile(
+            imageFileName, /* prefix */
             ".jpg", /* suffix */
-            storageDir /* directory */
-        ).apply {
-            // Save a file: path for use with ACTION_VIEW intents
-            mCurrentPhotoPath = this.absolutePath
+            storageDir      /* directory */
+        )
+        // Save a file: path for using again
+        mCurrentPhotoPath = image.absolutePath
+        cameraFilePath = "file://" + image.absolutePath
+
+        return image
+    }
+
+    private fun captureFromCamera() {
+        try {
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            intent.putExtra(
+                MediaStore.EXTRA_OUTPUT,
+                FileProvider.getUriForFile(this, "br.com.leilao.fileprovider", createImageFile())
+            )
+
+
+            startActivityForResult(intent, CAMERA_REQUEST_CODE)
+        } catch (ex: IOException) {
+            ex.printStackTrace()
+            Log.e("Erro: ", "error", ex)
+
         }
-    }//endregion
+
+    }
+
+    public override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        // Result code is RESULT_OK only if the user captures an Image
+        if (resultCode == Activity.RESULT_OK)
+
+            when (requestCode) {
+                CAMERA_REQUEST_CODE -> {//imageView.setImageURI(Uri.parse(cameraFilePath))
+                    salvar.visibility = View.VISIBLE
+                }
+            }
+    }
+
+        //endregion
 
 
 }
