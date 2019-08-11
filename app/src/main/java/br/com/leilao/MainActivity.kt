@@ -3,9 +3,9 @@ package br.com.leilao
 import android.Manifest.permission.*
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.os.Environment
@@ -30,7 +30,6 @@ import kotlinx.coroutines.launch
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
-import retrofit2.*
 import java.io.File
 import java.io.IOException
 import java.lang.IndexOutOfBoundsException
@@ -49,18 +48,16 @@ class MainActivity : AppCompatActivity() {
     lateinit var buscar: Button
     lateinit var grupo: String
     lateinit var salvar: Button
-    lateinit var imagemPath: String
     lateinit var lacre: EditText
     lateinit var btnFotografar: FloatingActionButton
-    val REQUEST_IMAGE_CAPTURE = 1
-    private val PERMISSION_REQUEST_CODE: Int = 1
-    private var mCurrentPhotoPath: String? = null;
-    private var toast = this
-    val GALLERY_REQUEST_CODE = 1
-    val CAMERA_REQUEST_CODE = 102
-    lateinit var base64String: String
     lateinit var item: Item
+    private val PERMISSION_REQUEST_CODE: Int = 1
+    private var mCurrentPhotoPath: String? = null
+    private var toast = this
+    val CAMERA_REQUEST_CODE = 102
     var path = ""
+    var imageFileName = ""
+    var myCompressedImage = ""
 
 
     //region InterfaceApp
@@ -117,7 +114,7 @@ class MainActivity : AppCompatActivity() {
             v?.onTouchEvent(event) ?: true
         }
 
-        btnFotografar.setOnClickListener(View.OnClickListener {
+        btnFotografar.setOnClickListener {
 
             if (checkPersmission()){
                 captureFromCamera()
@@ -127,39 +124,40 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, BuildConfig.APPLICATION_ID, Toast.LENGTH_LONG).show()
             }
 
-        })
+        }
 
-        buscar.setOnClickListener(View.OnClickListener {
+        this.buscar.setOnClickListener {
             buscarlacre()
             contarItens()
-        })
+        }
 
-        salvar.setOnClickListener(View.OnClickListener {
+        salvar.setOnClickListener {
             salvarItem()
-        })
+        }
 
     }//endregion
-
 
     //region Retrofit
     private fun contarItens(){
 
-        val callGet = RetrofitBase().itemService().total()
+        val callGet = RetrofitBase().itemService().total().also {
 
-        callGet.enqueue(object : Callback<Int?> {
-            override fun onFailure(call: Call<Int?>, t: Throwable) {
-                Log.e("onFailure error", t?.message)
-            }
-
-            override fun onResponse(call: Call<Int?>, response: Response<Int?>) {
-                var pos: Int? = response.body()
-                if(pos !== null){
-                    pos+=1
-                    posicao.text = (pos).toString()
+            it.enqueue(object : Callback<Int?> {
+                override fun onFailure(call: Call<Int?>, t: Throwable) {
+                    val e = Log.e("onFailure error", t.message)
                 }
 
-            }
-        })
+
+                override fun onResponse(call: Call<Int?>, response: Response<Int?>) {
+                    var pos: Int? = response.body()
+                    if(pos !== null){
+                        pos+=1
+                        posicao.text = (pos).toString()
+                    }
+
+                }
+            })
+        }
 
 
     }
@@ -196,23 +194,21 @@ class MainActivity : AppCompatActivity() {
             path = path
         )
 
-        Log.e("teu cu", item.path)
-
         val callSalvar = RetrofitBase().itemService().salvarItem(item)
 
         callSalvar.enqueue(object: Callback<Item?> {
-            override fun onFailure(call: Call<Item?>, t: Throwable) {
-                Log.e("onFailure error", t?.message)
-            }
+                override fun onFailure(call: Call<Item?>, t: Throwable) {
+                    Log.e("onFailure error", t?.message)
+                }
 
-            override fun onResponse(call: Call<Item?>, response: Response<Item?>) {
-                //Toast.makeText(toast, "item salvo com sucesso", Toast.LENGTH_LONG).show()
-                Log.e("resposta", "com sucesso")
-            }
-        })
-
-
+                override fun onResponse(call: Call<Item?>, response: Response<Item?>) {
+                    //Toast.makeText(toast, "item salvo com sucesso", Toast.LENGTH_LONG).show()
+                    Log.e("resposta", "com sucesso")
+                    reseteViews()
+                }
+            })
         }
+
         if(
             editTExtLacre.text.toString().isNullOrBlank()
             ||
@@ -222,42 +218,31 @@ class MainActivity : AppCompatActivity() {
             ||
             grupo.isNullOrBlank()
             ||
-            mCurrentPhotoPath.isNullOrBlank()
+            myCompressedImage.isNullOrBlank()
         ){
             //Toast.makeText(this, "Informe todos os campos", Toast.LENGTH_LONG).show()
         }else{
-            path = base64Converter().encoder(mCurrentPhotoPath)
+            path = base64Converter().encoder(myCompressedImage)
             Log.e("teu cu", path)
             Thread.sleep(3000L) // block main thread for 2 seconds to keep JVM alive
         }
 
-
-
-
-
     }
 
-    private fun salvarImagemPath() {
-        val file: File = File(mCurrentPhotoPath)
-        val fileReqBody: RequestBody = file.asRequestBody("image/".toMediaTypeOrNull())
-        val part = MultipartBody.Part.createFormData("upload", file.name, fileReqBody)
-        val description = "image-type".toRequestBody("text/plain".toMediaTypeOrNull())
-        val callImage = RetrofitBase().itemService().uploadImage(part, description)
-
-        callImage.enqueue(object : Callback<ResponseBody?> {
-            override fun onFailure(call: Call<ResponseBody?>, t: Throwable) {
-                Log.e("onFailure error", t?.message)
-            }
-
-            override fun onResponse(call: Call<ResponseBody?>, response: Response<ResponseBody?>) {
-                Toast.makeText(toast, "imagem enviada", Toast.LENGTH_LONG).show()
-            }
-        })
-
-    }
 
     //endregion
 
+    //region Funções auxiliares
+
+    private fun reseteViews(){
+        lacre.setText("")
+        processo.setText("")
+        posicao.setText("")
+        gpo.setSelection(0)
+        salvar.visibility = View.INVISIBLE
+    }
+
+    //endregion
 
     //region CameraApp
 
@@ -299,13 +284,12 @@ class MainActivity : AppCompatActivity() {
         ActivityCompat.requestPermissions(this, arrayOf(READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE,  INTERNET, CAMERA), PERMISSION_REQUEST_CODE)
     }
 
-
     private var cameraFilePath: String? = null
     @Throws(IOException::class)
     private fun createImageFile(): File {
         // Create an image file name
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
-        val imageFileName = "JPEG_" + timeStamp + "_"
+        imageFileName = "JPEG_" + timeStamp + "_"
         //This is the directory in which the file will be created. This is the default location of Camera photos
         val storageDir = File(
             Environment.getExternalStoragePublicDirectory(
@@ -313,9 +297,9 @@ class MainActivity : AppCompatActivity() {
             ), "Camera"
         )
         val image = File.createTempFile(
-            imageFileName, /* prefix */
+            "JPEG_${timeStamp}_", /* prefix */
             ".jpg", /* suffix */
-            storageDir      /* directory */
+            storageDir /* directory */
         )
         // Save a file: path for using again
         mCurrentPhotoPath = image.absolutePath
@@ -331,7 +315,6 @@ class MainActivity : AppCompatActivity() {
                 MediaStore.EXTRA_OUTPUT,
                 FileProvider.getUriForFile(this, "br.com.leilao.fileprovider", createImageFile())
             )
-
 
             startActivityForResult(intent, CAMERA_REQUEST_CODE)
         } catch (ex: IOException) {
@@ -349,11 +332,24 @@ class MainActivity : AppCompatActivity() {
             when (requestCode) {
                 CAMERA_REQUEST_CODE -> {//imageView.setImageURI(Uri.parse(cameraFilePath))
                     salvar.visibility = View.VISIBLE
+
+                    val f = File(mCurrentPhotoPath)
+
+                    myCompressedImage = Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DCIM).getAbsolutePath() + "/" + f.name
+
+                    Compressor(this)
+                        .setMaxWidth(640)
+                        .setMaxHeight(480)
+                        .setQuality(75)
+                        .setDestinationDirectoryPath(Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_DCIM).getAbsolutePath())
+                        .compressToFile(f)
                 }
             }
+
     }
 
         //endregion
-
 
 }
